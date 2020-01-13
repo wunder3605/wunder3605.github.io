@@ -43,10 +43,12 @@
         
           <a class="main-nav-link" href="/archives">归档</a>
         
+          <a class="main-nav-link" href="/resume">简历</a>
+        
       </nav>
       <nav id="sub-nav">
         
-        <a id="nav-search-btn" class="nav-icon" title="Suche"></a>
+        <a id="nav-search-btn" class="nav-icon" title="Buscar"></a>
       </nav>
       <div id="search-form-wrap">
         <form action="//google.com/search" method="get" accept-charset="UTF-8" class="search-form"><input type="search" name="q" class="search-form-input" placeholder="Search"><button type="submit" class="search-form-submit">&#xF002;</button><input type="hidden" name="sitesearch" value="http://junqing.wang"></form>
@@ -79,28 +81,33 @@
     
     <div class="article-entry" itemprop="articleBody">
       
-        <h1 id="conflux算法概述"><a href="#conflux算法概述" class="headerlink" title="conflux算法概述"></a>conflux算法概述</h1><h2 id="概要介绍"><a href="#概要介绍" class="headerlink" title="概要介绍"></a>概要介绍</h2><p>今天看了Conflux论文，主要关注了其共识算法部分，与大家分享一下理解，不对之处恳请指出，</p>
-<p>先说结论，通过该共识算法，可以将DAG中块进行排序，最终达到下图这个效果：<br><img src="https://wt-box.worktile.com/public/20084bca-e3b5-4420-a2bb-a2b52935556c" alt="conflux00.png"></p>
-<p>论文中主要对于算法定义主要有四张图：</p>
+        <h1 id="Conflux核心算法"><a href="#Conflux核心算法" class="headerlink" title="Conflux核心算法"></a>Conflux核心算法</h1><h2 id="概要介绍"><a href="#概要介绍" class="headerlink" title="概要介绍"></a>概要介绍</h2><p>Conflux算法是一种DAG算法，相较于传统的单链结构，其特点是可以同时在图的不同位置插入很多块，然后通过一个算法评定标准来确定块与块之间的顺序。<br><img src="https://wt-box.worktile.com/public/20084bca-e3b5-4420-a2bb-a2b52935556c" alt="conflux00.png"><br>以上图为例，一个conflux算法是这么确定全序，主要分为几个步骤：</p>
+<ol>
+<li><p>定义说明<br>parent edge，父边，每个块只有一个父边，指向父节点<br>ref. edge，引用边，每个块可以有零个或多个引用边，指向其他节点</p>
+</li>
+<li><p>确定pivot chain<br>pivot chain的定义为依次相连的块子树最多的块组成的主链，在上图中即为Gennesis &lt;- A &lt;- C &lt;- E &lt;- H。这里注意两点，一是依次相连，pivot chain是通过父边依次相连，二是子最多，这里子树关系也只考虑父边，另外如果子树数目相同，则比较块hash值大小，优先选小的。这里具体作下说明，毫无疑问，Genesis块是pivot chain的开始，它拥有12个子树块（不包括新加入块New Block）；接着是A与B竞争，A拥有6个子树块，B拥有5个子树块，所以A成为pivot chain的第二环；然后是C，D，G三个块竞争，C有3个子树块，D，G各只有一个，所以C成为第三环；最后是E和H分别无竞争的成为第四环和第五环。</p>
+</li>
+<li><p>根据pivot chain划分epoch，确定每个epoch里的序<br>确定pivot chain后，根据pivot chain中每一个块划分一个epoch。接下来如何判断每个非pivot chain的块属于哪个epoch呢，需要明确的是每个块只属于一个epoch，且仅属于被pivot chain中的块最先直接或间接指向的块，这里指向包括父边和引用边。具体说明下，B被C指向，则B属于C的epoch，D和F被E指向，则D和F属于E的epoch，G和I被H指向，J又被I指向（相当于J被H间接指向），所以G，J，I都属于H的epoch，这样，块划分epoch完毕。<br>接下来是对每个epoch中的块进行排序，排序过程中只考虑每个epoch中内部块之间的指向关系。排序按照如下原则，如果块没有前继块即在该epoch没有指向其他块，那么首先把这些没有前继块的块拿出来按hash值从小到大排序，然后除去这些块后，继续拿出没有前继块的块，按hash值排序，接着之前的排序，循环如此，这样就得到一个epoch内的序。具体说明，在C的epoch中，先是B没有前继块，然后去掉B，只剩下C没有前继块，所以C的epoch中的序是B &lt;- C；在E的epoch中，D和F都没有前继块，但比hash值D小于F，所以是D &lt;- F，然后是E，最终是D &lt;- F &lt;- E；在H的epoch中比较复杂，首先没有前继块的是G和J，G小于J，所以是G &lt;- J，然后是I，最后是H，所以最终是G &lt;- J &lt;- I &lt;- H。这样所有的epoch中的序都确定了。</p>
+</li>
+<li><p>串联epoch中所有块，确定全序<br>根据之前的各epoch中的排序，最终得到的全序是，Gennesis &lt;- A &lt;- B &lt;- C &lt;- D &lt;- F &lt;- E &lt;- G &lt;- J &lt;- I &lt;- H</p>
+</li>
+</ol>
+<p>后续详细说明下论文中主要对于算法定义的四张图：</p>
 <ul>
 <li>第一张图为各种图关系定义</li>
 <li>第二张图为Pivot算法定义</li>
 <li>第三图为共识程序主循环</li>
 <li>第四图为拓扑序求解</li>
 </ul>
-<h2 id="1-图关系定义"><a href="#1-图关系定义" class="headerlink" title="1.图关系定义"></a>1.图关系定义</h2><p>首先是第一张图，对应论文的图3，看懂图关系定义是为了方便看懂后续算法实现：<br><img src="https://wt-box.worktile.com/public/1a67f56f-a0f5-4185-89a8-d65cde19f5a4" alt="conflux01.jpeg"></p>
-<p><code>G</code>为<code>图定义</code>，<code>&lt;B, g, P, E&gt;</code>分别为<code>&lt;块集合，创世块，父关系函数，边集合&gt;</code>；<br><code>Chain(G, b)</code>为<code>从创世块沿着父关系到块b的链</code>；<br><code>Child(G, b)</code>为<code>满足父关系块为块b的所有子块集合</code>；<br><code>Sibling(G, b)</code>为<code>与块b有同父关系块的所有块（不包含块b）集合</code>；<br><code>Subtree(G, b)</code>是一个递归定义，为<code>包含块b，及所有块b的子块集合，及块b的子块的子块集合......以此类推</code>；<br><code>Before(G, b)</code>为<code>块b的所有前继块（父关系块也属于一种前继块）集合</code>；<br><code>Past(G, b)</code>也是一个递归定义，为<code>包含块b，及块b的前继块集合，及块b的前继块的前继块集合.....以此类推.</code>；<br><code>TotalOrder(G)</code>为<code>拓扑序，使用第二部分和第四部分的算法来具体实现</code>  </p>
-<h2 id="2-Pivot算法定义"><a href="#2-Pivot算法定义" class="headerlink" title="2.Pivot算法定义"></a>2.Pivot算法定义</h2><p>一言以蔽之，Pivot算法是一种选主链的最后一个块的算法：<br><img src="https://wt-box.worktile.com/public/8023ac40-88df-438a-aa93-228ae8962a46" alt="conflux02.png"></p>
-<p>输入为<code>图G与一个开始块b</code><br>输出为<code>pivot链的最后一个块</code><br>这个程序比较简单，通过尾递归的形式来求解，每一次求解出块b的子块中的每个Subtree块数最多的的块即为目标块，若Subtree块数相同则比较块本身的hash值大小，hash值小则为目标块。</p>
-<h2 id="3-共识程序主循环"><a href="#3-共识程序主循环" class="headerlink" title="3.共识程序主循环"></a>3.共识程序主循环</h2><p>共识程序主循环，主要接受两种事件，<code>通过gossip网络传播来的新图G&#39;</code>，以及<code>生产出新块b</code><br><img src="https://wt-box.worktile.com/public/d94d2492-3f06-4c2a-9b24-5fe08200d97e" alt="conflux03.png"></p>
-<p>算法首先有一个本地状态，即图G<br>对于第一种事件，<code>通过gossip网络传播来的新图G&#39;：将其与本地状态图G取并集得到G&#39;&#39;，若与图G不同则更新，并传播G&#39;&#39;</code>。<br>对于第二种事件，<code>生产出新块b：首先通过Pivot算法取得最后一个块a，然后做两个操作，一是将块b的父关系块设为块a，二是将块b使用reference edge（区别于父关系边的另一种边）指向所有没有被其他块指向的块</code>。</p>
-<h2 id="4-拓扑序求解"><a href="#4-拓扑序求解" class="headerlink" title="4.拓扑序求解"></a>4.拓扑序求解</h2><p>最复杂的算法来了，这个多亏了朝明师兄的讲解才明白，这里表示感谢，<br><img src="https://wt-box.worktile.com/public/c8c60904-e344-4f70-b412-fbcdc50f8ea4" alt="conflux04.png"></p>
-<p>输入为<code>图G以及块a</code><br>输出为<code>从创世块开始的所有块的拓扑序的链</code><br>这个算法是倒推的，用递归来实现的：<br>1-4行，<code>取块a的父关系块，一直递归到创世块为止，返回传世块作为链L的第一个块，然后对创世块的第一个子块进行后续计算</code><br>5行，<code>取块a的前继块集合和块a的父关系块的前继块集合的差集B*</code><br>6-12行，<code>若差集B*非空则将差集块赋予新图G&#39;，算出G&#39;中前继块数目为0的所有块集合B*&#39;，按hash值从小到大排序后接入链L中，然后取差集B* = B* - B*&#39;，循环执行6-12行</code><br>13行，<code>返回链L</code></p>
+<h2 id="1-图关系定义"><a href="#1-图关系定义" class="headerlink" title="1.图关系定义"></a>1.图关系定义</h2><p>首先是第一张图，对应论文的图3，看懂图关系定义是为了方便看懂后续算法实现：<br><img src="https://wt-box.worktile.com/public/1a67f56f-a0f5-4185-89a8-d65cde19f5a4" alt="conflux01.jpeg"><br><code>G</code>为<code>图定义</code>，<code>&lt;B, g, P, E&gt;</code>分别为<code>&lt;块集合，创世块，父关系函数，边集合&gt;</code>；<br><code>Chain(G, b)</code>为<code>从创世块沿着父关系到块b的链</code>；<br><code>Child(G, b)</code>为<code>满足父关系块为块b的所有子块集合</code>；<br><code>Sibling(G, b)</code>为<code>与块b有同父关系块的所有块（不包含块b）集合</code>；<br><code>Subtree(G, b)</code>是一个递归定义，为<code>包含块b，及所有块b的子块集合，及块b的子块的子块集合......以此类推</code>；<br><code>Before(G, b)</code>为<code>块b的所有前继块（父关系块也属于一种前继块）集合</code>；<br><code>Past(G, b)</code>也是一个递归定义，为<code>包含块b，及块b的前继块集合，及块b的前继块的前继块集合.....以此类推.</code>；<br><code>TotalOrder(G)</code>为<code>拓扑序，使用第二部分和第四部分的算法来具体实现</code>  </p>
+<h2 id="2-Pivot算法定义"><a href="#2-Pivot算法定义" class="headerlink" title="2.Pivot算法定义"></a>2.Pivot算法定义</h2><p>一言以蔽之，Pivot算法是一种选主链的最后一个块的算法：<br><img src="https://wt-box.worktile.com/public/8023ac40-88df-438a-aa93-228ae8962a46" alt="conflux02.png"><br>输入为<code>图G与一个开始块b</code><br>输出为<code>pivot链的最后一个块</code><br>这个程序比较简单，通过尾递归的形式来求解，每一次求解出块b的子块中的每个Subtree块数最多的的块即为目标块，若Subtree块数相同则比较块本身的hash值大小，hash值小则为目标块。</p>
+<h2 id="3-共识程序主循环"><a href="#3-共识程序主循环" class="headerlink" title="3.共识程序主循环"></a>3.共识程序主循环</h2><p>共识程序主循环，主要接受两种事件，<code>通过gossip网络传播来的新图G&#39;</code>，以及<code>生产出新块b</code><br><img src="https://wt-box.worktile.com/public/d94d2492-3f06-4c2a-9b24-5fe08200d97e" alt="conflux03.png"><br>算法首先有一个本地状态，即图G<br>对于第一种事件，<code>通过gossip网络传播来的新图G&#39;：将其与本地状态图G取并集得到G&#39;&#39;，若与图G不同则更新，并传播G&#39;&#39;</code>。<br>对于第二种事件，<code>生产出新块b：首先通过Pivot算法取得最后一个块a，然后做两个操作，一是将块b的父关系块设为块a，二是将块b使用reference edge（区别于父关系边的另一种边）指向所有没有被其他块指向的块</code>。</p>
+<h2 id="4-拓扑序求解"><a href="#4-拓扑序求解" class="headerlink" title="4.拓扑序求解"></a>4.拓扑序求解</h2><p><img src="https://wt-box.worktile.com/public/c8c60904-e344-4f70-b412-fbcdc50f8ea4" alt="conflux04.png"><br>输入为<code>图G以及块a</code><br>输出为<code>从创世块开始的所有块的拓扑序的链</code><br>这个算法是倒推的，用递归来实现的：<br>1-4行，<code>取块a的父关系块，一直递归到创世块为止，返回传世块作为链L的第一个块，然后对创世块的第一个子块进行后续计算</code><br>5行，<code>取块a的前继块集合和块a的父关系块的前继块集合的差集B*</code><br>6-12行，<code>若差集B*非空则将差集块赋予新图G&#39;，算出G&#39;中前继块数目为0的所有块集合B*&#39;，按hash值从小到大排序后接入链L中，然后取差集B* = B* - B*&#39;，循环执行6-12行</code><br>13行，<code>返回链L</code></p>
 
       
     </div>
     <footer class="article-footer">
-      <a data-url="http://junqing.wang/2019/01/16/conflux/" data-id="cjqymkp2600006140w9lwu46u" class="article-share-link">Teilen</a>
+      <a data-url="http://junqing.wang/2019/01/16/conflux/" data-id="ck5cbzu7u0000u940dhaw8snd" class="article-share-link">Compartir</a>
       
       
     </footer>
@@ -126,7 +133,7 @@
   
     
   <div class="widget-wrap">
-    <h3 class="widget-title">Archiv</h3>
+    <h3 class="widget-title">Archivos</h3>
     <div class="widget">
       <ul class="archive-list"><li class="archive-list-item"><a class="archive-list-link" href="/archives/2019/01/">January 2019</a></li></ul>
     </div>
@@ -136,7 +143,7 @@
   
     
   <div class="widget-wrap">
-    <h3 class="widget-title">letzter Beitrag</h3>
+    <h3 class="widget-title">Posts recientes</h3>
     <div class="widget">
       <ul>
         
@@ -156,8 +163,8 @@
   
   <div class="outer">
     <div id="footer-info" class="inner">
-      &copy; 2019 Junqing Wang<br>
-      Powered by <a href="http://hexo.io/" target="_blank">Hexo</a>
+      &copy; 2020 Junqing Wang<br>
+      Construido por <a href="http://hexo.io/" target="_blank">Hexo</a>
     </div>
   </div>
 </footer>
@@ -167,6 +174,8 @@
     <a href="/" class="mobile-nav-link">首页</a>
   
     <a href="/archives" class="mobile-nav-link">归档</a>
+  
+    <a href="/resume" class="mobile-nav-link">简历</a>
   
 </nav>
     
